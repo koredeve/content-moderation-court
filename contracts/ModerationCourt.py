@@ -123,12 +123,16 @@ class ModerationCourt(gl.Contract):
 	def publish_post(self, post_id: str, content: str) -> None:
 		if gl.message.value < MIN_STAKE:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Stake below minimum")
-		if post_id in self.posts:
+		clean_id = str(post_id).strip()
+		clean_content = str(content).strip()
+		if not clean_id or not clean_content:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post id and content must not be empty")
+		if clean_id in self.posts:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post id already exists")
 		author = gl.message.sender_address
-		self.posts[post_id] = Post(
+		self.posts[clean_id] = Post(
 			author=author,
-			content=content,
+			content=clean_content,
 			status=STATUS_LIVE,
 			stake_atto=u256(gl.message.value),
 			flag_count=u256(0),
@@ -136,7 +140,7 @@ class ModerationCourt(gl.Contract):
 			reasoning="",
 			flagger=author,
 		)
-		self.post_ids.append(post_id)
+		self.post_ids.append(clean_id)
 
 	@gl.public.write
 	def flag_post(self, post_id: str) -> None:
@@ -156,8 +160,9 @@ class ModerationCourt(gl.Contract):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post is not live")
 		if post.flag_count == u256(0):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post must be flagged first")
-
-		policy = str(self.policy_text)
+		policy = str(self.policy_text).strip()
+		if not policy:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} Moderation policy not configured")
 		content = str(post.content)
 
 		def leader_fn() -> dict:
