@@ -84,6 +84,7 @@ class Post:
 	category: str
 	reasoning: str
 	flagger: Address
+	policy_snapshot: str
 
 
 class ModerationCourt(gl.Contract):
@@ -130,6 +131,10 @@ class ModerationCourt(gl.Contract):
 		if clean_id in self.posts:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post id already exists")
 		author = gl.message.sender_address
+		policy_to_bind = self.policy_text.strip()
+		if not policy_to_bind:
+			policy_to_bind = "Community Standard: No spam, hate speech, harassment, or malicious content."
+
 		self.posts[clean_id] = Post(
 			author=author,
 			content=clean_content,
@@ -139,6 +144,7 @@ class ModerationCourt(gl.Contract):
 			category="",
 			reasoning="",
 			flagger=author,
+			policy_snapshot=policy_to_bind,
 		)
 		self.post_ids.append(clean_id)
 
@@ -150,8 +156,10 @@ class ModerationCourt(gl.Contract):
 		sender = gl.message.sender_address
 		if str(sender) == str(post.author):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Author cannot flag own post")
+		# Invariant: First flagger is permanently preserved; later flags cannot hijack payout recipient
+		if post.flag_count == u256(0):
+			post.flagger = sender
 		post.flag_count = post.flag_count + u256(1)
-		post.flagger = sender
 
 	@gl.public.write
 	def adjudicate(self, post_id: str) -> None:
@@ -160,9 +168,8 @@ class ModerationCourt(gl.Contract):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post is not live")
 		if post.flag_count == u256(0):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Post must be flagged first")
-		policy = str(self.policy_text).strip()
-		if not policy:
-			raise gl.vm.UserError(f"{ERROR_EXPECTED} Moderation policy not configured")
+		# Invariant: Staked post is evaluated strictly against its immutable policy snapshot bound at creation
+		policy = str(post.policy_snapshot).strip()
 		content = str(post.content)
 
 		def leader_fn() -> dict:
@@ -237,6 +244,7 @@ class ModerationCourt(gl.Contract):
 			"flag_count": post.flag_count,
 			"category": post.category,
 			"reasoning": post.reasoning,
+			"policy_snapshot": post.policy_snapshot,
 		}
 
 	@gl.public.view

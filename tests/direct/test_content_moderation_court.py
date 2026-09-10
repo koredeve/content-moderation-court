@@ -213,3 +213,79 @@ def test_malformed_llm_output_raises_user_error(
 
     assert contract.get_post("post-1")["status"] == "live"
     assert contract.credit_of(direct_bob) == 0
+
+
+def test_later_flag_preserves_first_flagger_payout(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    """A subsequent flag increments flag count but NEVER overwrites the first flagger payout recipient."""
+    contract = _deploy(direct_vm, direct_deploy, direct_alice)
+    direct_vm.sender = direct_alice
+    contract.set_policy(POLICY)
+
+    # Deployer/Alice is owner, author is Charlie
+    author = direct_charlie
+    first_flagger = direct_bob
+    second_flagger = direct_alice
+
+    _publish(direct_vm, contract, author, "post-payout", POST_SPAM)
+
+    # Bob flags first
+    _flag(direct_vm, contract, first_flagger, "post-payout")
+    post = contract.get_post("post-payout")
+    assert post["flag_count"] == 1
+    assert len(post["flagger"]) > 0
+
+    # Alice flags second
+    _flag(direct_vm, contract, second_flagger, "post-payout")
+    post = contract.get_post("post-payout")
+    assert post["flag_count"] == 2
+
+    # Adjudicate violation
+    direct_vm.mock_llm(
+        PROMPT_REGEX,
+        json.dumps({"violation": True, "category": "spam", "reasoning": "unsolicited ads"}),
+    )
+    _adjudicate(direct_vm, contract, author, "post-payout")
+
+    # Invariant: Bob (first flagger) receives the full stake, Alice (second flagger) receives 0
+    assert contract.credit_of(first_flagger) == STAKE
+    assert contract.credit_of(second_flagger) == 0
+    assert contract.credit_of(author) == 0
+
+
+def test_staked_post_bound_to_immutable_policy_snapshot(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    """A staked post binds to the active policy at creation; owner cannot change adjudication terms after funds are locked."""
+    contract = _deploy(direct_vm, direct_deploy, direct_alice)
+    direct_vm.sender = direct_alice
+
+    policy_v1 = "Policy V1: Absolutely no advertising links."
+    contract.set_policy(policy_v1)
+
+    _publish(direct_vm, contract, direct_charlie, "post-bound", POST_SPAM)
+    post = contract.get_post("post-bound")
+    assert post["policy_snapshot"] == policy_v1
+
+    # Owner changes policy later to a completely different policy
+    direct_vm.sender = direct_alice
+    policy_v2 = "Policy V2: All advertising is now officially encouraged."
+    contract.set_policy(policy_v2)
+    assert contract.get_policy() == policy_v2
+
+    # The existing post's policy snapshot remains Policy V1
+    post = contract.get_post("post-bound")
+    assert post["policy_snapshot"] == policy_v1
+
+    # Flag and adjudicate: validator prompt uses Policy V1 snapshot
+    _flag(direct_vm, contract, direct_bob, "post-bound")
+    direct_vm.mock_llm(
+        r"Policy V1: Absolutely no advertising links",
+        json.dumps({"violation": True, "category": "spam", "reasoning": "violates Policy V1"}),
+    )
+    _adjudicate(direct_vm, contract, direct_alice, "post-bound")
+
+    assert contract.get_post("post-bound")["status"] == "removed"
+    assert contract.credit_of(direct_bob) == STAKE
+

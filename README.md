@@ -31,15 +31,22 @@ pip install -r requirements.txt
 | --- | --- | --- |
 | `owner()` | view | Contract owner (deployer), as string |
 | `get_policy()` | view | Current moderation policy text |
-| `set_policy(text)` | write | Owner-only; non-empty text |
-| `publish_post(post_id, content)` | write, payable | Requires value >= MIN_STAKE (10^17); unique id; starts `live` |
-| `flag_post(post_id)` | write | Live posts only; author cannot flag own post; tracks latest flagger |
-| `adjudicate(post_id)` | write | Requires live + flagged; AI judge decides violation vs policy |
+| `set_policy(text)` | write | Owner-only; updates future policy baseline; does not alter previously staked posts |
+| `publish_post(post_id, content)` | write, payable | Requires value >= MIN_STAKE (10^17); binds to an immutable `policy_snapshot` at creation |
+| `flag_post(post_id)` | write | Live posts only; author cannot flag own post; preserves defined first flagger so payout cannot be hijacked |
+| `adjudicate(post_id)` | write | Requires live + flagged; AI judge decides violation strictly against post's bound `policy_snapshot` |
 | `withdraw()` | write | Withdraws accrued credits |
-| `get_post(post_id)` | view | Post state incl. author/flagger as strings, status, stake, verdict |
+| `get_post(post_id)` | view | Post state incl. author/flagger, status, stake, policy_snapshot, verdict |
 | `credit_of(who)` | view | Withdrawable credit balance for an address |
 | `total_posts()` | view | Number of published posts |
+
+## Deployment
+
+- **Network**: StudioNet (GenLayer)
+- **Contract Address**: `0xd8a1fd6780Fdf3471Ff9De629df92790100dC82E`
+- **Explorer**: [https://explorer-studio.genlayer.com/address/0xd8a1fd6780Fdf3471Ff9De629df92790100dC82E](https://explorer-studio.genlayer.com/address/0xd8a1fd6780Fdf3471Ff9De629df92790100dC82E)
 
 ## StudioNet
 
 StudioNet is gasless — deploying and interacting costs 0 GEN, so the payable stake in tests is purely contract-level accounting.
+
